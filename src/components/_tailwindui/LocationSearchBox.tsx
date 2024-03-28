@@ -1,0 +1,151 @@
+import { useEffect, useState } from "react";
+import { CheckIcon, ChevronUpDownIcon } from "@heroicons/react/20/solid";
+import { Combobox } from "@headlessui/react";
+import _ from "lodash";
+import { ILocation, IPoints } from "@/types/Location";
+import { ApiHandler } from "@/server/api";
+
+function classNames(...classes: string[]) {
+  return classes.filter(Boolean).join(" ");
+}
+
+interface Props {
+  clearLocation?: boolean;
+  setLocation: (value: IPoints) => void;
+  placeholder?: string;
+  isDescriptionRequired?: boolean;
+}
+
+export default function LocationSearchBox({
+  setLocation,
+  placeholder,
+  isDescriptionRequired = true,
+}: Props) {
+  const [query, setQuery] = useState("");
+  const [selectedLocation, setSelectedLocation] = useState<ILocation>();
+  const [currentLocation, setCurrentLocation] = useState<ILocation>();
+  const [locations, setLocations] = useState<ILocation[]>();
+
+  useEffect(() => {
+    if (navigator?.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          console.log("Latitude is :", latitude);
+          console.log("Longitude is :", longitude);
+
+          setCurrentLocation({
+            name: "My Location",
+            location: { lat: latitude, lng: longitude },
+            address: "Current Location",
+          });
+        },
+        (error) => {
+          console.error("Error Code = " + error.code + " - " + error.message);
+        },
+        { timeout: 10000 }
+      );
+    }
+  }, []);
+  const fetchLocations = async () => {
+    const { data, success } = await ApiHandler("GET", `/location?q=${query}`);
+
+    if (!success) {
+      alert("Location Api failed");
+      return;
+    }
+    if (
+      currentLocation &&
+      currentLocation.location.lat &&
+      currentLocation.location.lng
+    ) {
+      setLocations([currentLocation, ...data]);
+    } else {
+      setLocations(data);
+    }
+  };
+
+  const debouncedFetchLocations = _.debounce(fetchLocations, 300);
+
+  useEffect(() => {
+    debouncedFetchLocations();
+
+    return () => {
+      debouncedFetchLocations.cancel();
+    };
+  }, [query]);
+
+  useEffect(() => {
+    if (selectedLocation) {
+      setLocation({
+        location: String(selectedLocation.name),
+        latitude: Number(selectedLocation.location.lat),
+        longitude: Number(selectedLocation.location.lng),
+        address: String(selectedLocation.address),
+      });
+    }
+  }, [selectedLocation]);
+
+  return (
+    <Combobox as="div" value={selectedLocation} onChange={setSelectedLocation}>
+      <div className="relative">
+        <Combobox.Input
+          className="w-full h-10 rounded-md border-0  bg-white py-2.5 pl-3 pr-10 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300  sm:text-sm sm:leading-6"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={placeholder || "Start typing to search location"}
+          displayValue={(location: ILocation) => location.name}
+        />
+        <Combobox.Button className="absolute inset-y-0 right-0 flex items-center rounded-r-md px-2 focus:outline-none">
+          <ChevronUpDownIcon
+            className="h-5 w-5 text-gray-400"
+            aria-hidden="true"
+          />
+        </Combobox.Button>
+
+        {locations && locations?.length > 0 && (
+          <Combobox.Options className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
+            {locations.map((location, idx) => (
+              <Combobox.Option
+                key={idx}
+                value={location}
+                className={({ active }) =>
+                  classNames(
+                    "relative cursor-default select-none py-2 pl-3 pr-9",
+                    active ? "bg-indigo-600 text-white" : "text-gray-900"
+                  )
+                }
+              >
+                {({ active, selected }) => (
+                  <>
+                    <span
+                      className={classNames(
+                        "block truncate",
+                        selected ? "font-semibold" : ""
+                      )}
+                    >
+                      {location.name + ", " + location.address}
+                    </span>
+
+                    {selected && (
+                      <span
+                        className={classNames(
+                          "absolute inset-y-0 right-0 flex items-center pr-4",
+                          active ? "text-white" : "text-indigo-600"
+                        )}
+                      >
+                        <CheckIcon className="h-5 w-5" aria-hidden="true" />
+                      </span>
+                    )}
+                  </>
+                )}
+              </Combobox.Option>
+            ))}
+          </Combobox.Options>
+        )}
+      </div>
+      {isDescriptionRequired && (
+        <p className="text-sm mt-2 italic">{selectedLocation?.address}</p>
+      )}
+    </Combobox>
+  );
+}
